@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Registre de présences</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; justify-content: center; padding: 2rem 1rem; }
+  .wrapper { width: 100%; max-width: 480px; }
+  .card { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 0.25rem; color: #111; }
+  .sub { font-size: 14px; color: #666; margin-bottom: 1.25rem; }
+  .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+  #qr-container { background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; display: inline-block; }
+  #qr-container table { border-collapse: collapse; display: block; }
+  #qr-container td { width: 8px; height: 8px; padding: 0; }
+  .url-text { font-size: 11px; color: #888; word-break: break-all; text-align: center; max-width: 240px; }
+  .hidden { display: none; }
+  label { font-size: 13px; color: #555; display: block; margin: 1rem 0 4px; }
+  input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px; outline: none; }
+  input[type=text]:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+  .btn-row { display: flex; gap: 8px; margin-top: 1.25rem; }
+  .btn-primary { flex: 1; background: #111; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 15px; cursor: pointer; font-weight: 500; }
+  .btn-primary:hover { background: #333; }
+  .btn-secondary { background: white; color: #111; border: 1px solid #d1d5db; padding: 10px 20px; border-radius: 8px; font-size: 15px; cursor: pointer; }
+  .success-icon { font-size: 48px; text-align: center; }
+  .success-name { font-size: 18px; font-weight: 600; text-align: center; margin: 0.5rem 0 0.25rem; color: #111; }
+  .success-msg { font-size: 13px; color: #16a34a; text-align: center; margin-bottom: 1rem; font-weight: 500; }
+  .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+  .actions { display: flex; gap: 8px; margin-bottom: 0.75rem; }
+  .btn-sm { font-size: 12px; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-weight: 500; border: none; }
+  .btn-sm-outline { background: white; border: 1px solid #d1d5db; color: #555; }
+  .btn-sm-dark { background: #111; color: white; }
+  .entries-list { max-height: 220px; overflow-y: auto; }
+  .entry-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .entry-row:last-child { border-bottom: none; }
+  .entry-num { background: #f3f4f6; border-radius: 99px; padding: 2px 8px; font-size: 11px; color: #888; flex-shrink: 0; }
+  .entry-name { font-weight: 600; color: #111; flex: 1; }
+  .entry-time { color: #aaa; font-size: 11px; flex-shrink: 0; }
+  .empty { color: #bbb; text-align: center; padding: 1.5rem 0; font-size: 14px; }
+  .steps { display: flex; align-items: center; gap: 6px; margin-bottom: 1.25rem; font-size: 12px; }
+  .step { color: #bbb; display: flex; align-items: center; gap: 4px; }
+  .step.active { color: #111; font-weight: 600; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: #e0e0e0; }
+  .step.active .dot { background: #111; }
+  .arrow { color: #ddd; }
+  .info-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #1d4ed8; margin-top: 0.75rem; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="card">
+    <div class="steps">
+      <div class="step active" id="s1"><div class="dot"></div> QR Code</div>
+      <span class="arrow">›</span>
+      <div class="step" id="s2"><div class="dot"></div> Formulaire</div>
+      <span class="arrow">›</span>
+      <div class="step" id="s3"><div class="dot"></div> Confirmé</div>
+    </div>
+
+    <!-- QR Section -->
+    <div id="sec-qr">
+      <h1>QR code de présence</h1>
+      <p class="sub">Scannez ce code pour enregistrer votre présence</p>
+      <div class="qr-wrap">
+        <div id="qr-container"></div>
+        <p class="url-text" id="url-display"></p>
+      </div>
+      <div class="info-box" id="local-warning" style="display:none;">
+        ⚠️ Vous ouvrez ce fichier en local. Pour scanner depuis un téléphone, mettez ce fichier sur GitHub Pages.
+      </div>
+    </div>
+
+    <!-- Form Section -->
+    <div id="sec-form" class="hidden">
+      <h1>Enregistrement</h1>
+      <p class="sub">Saisissez vos informations pour valider votre présence.</p>
+      <label for="inp-prenom">Prénom</label>
+      <input type="text" id="inp-prenom" placeholder="ex. Marie" autocomplete="off" />
+      <label for="inp-nom">Nom</label>
+      <input type="text" id="inp-nom" placeholder="ex. Dupont" autocomplete="off" />
+      <div class="btn-row">
+        <button class="btn-secondary" onclick="showQR()">Annuler</button>
+        <button class="btn-primary" onclick="submitForm()">✓ Valider</button>
+      </div>
+    </div>
+
+    <!-- Success Section -->
+    <div id="sec-ok" class="hidden">
+      <div class="success-icon">✅</div>
+      <p class="success-name" id="ok-name"></p>
+      <p class="success-msg">Présence enregistrée avec succès !</p>
+      <div class="btn-row" style="justify-content:center;">
+        <button class="btn-secondary" onclick="showQR()">← Retour</button>
+        <button class="btn-primary" style="flex:none;" onclick="downloadExcel()">📥 Télécharger Excel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Registre -->
+  <div class="card">
+    <div class="top-row">
+      <h1 style="font-size:16px;">Registre des présences</h1>
+      <span style="font-size:13px; color:#888;" id="cnt">0 entrée(s)</span>
+    </div>
+    <div class="actions">
+      <button class="btn-sm btn-sm-outline" onclick="clearAll()">🗑 Vider</button>
+      <button class="btn-sm btn-sm-dark" onclick="downloadExcel()">⬇ Télécharger .xlsx</button>
+    </div>
+    <div class="entries-list" id="list">
+      <div class="empty">Aucune présence enregistrée.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── QR Code 100% JS ──────────────────────────────────────────────────────────
+var QRGen = (function() {
+  // GF(256) tables
+  var EXP = new Array(512), LOG = new Array(256);
+  (function() {
+    var x = 1;
+    for (var i = 0; i < 255; i++) {
+      EXP[i] = x; LOG[x] = i;
+      x = x * 2; if (x > 255) x ^= 0x11d;
+    }
+    for (var i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  })();
+
+  function mul(a, b) { return (a && b) ? EXP[LOG[a] + LOG[b]] : 0; }
+
+  function polyMul(p, q) {
+    var r = new Array(p.length + q.length - 1).fill(0);
+    for (var i = 0; i < p.length; i++)
+      for (var j = 0; j < q.length; j++)
+        r[i+j] ^= mul(p[i], q[j]);
+    return r;
+  }
+
+  function genPoly(n) {
+    var g = [1];
+    for (var i = 0; i < n; i++) g = polyMul(g, [1, EXP[i]]);
+    return g;
+  }
+
+  function ecBytes(data, n) {
+    var gen = genPoly(n);
+    var rem = data.slice();
+    for (var i = 0; i < data.length; i++) {
+      var c = rem.shift();
+      if (c) for (var j = 0; j < gen.length; j++) rem[j] = (rem[j] || 0) ^ mul(gen[j], c);
+    }
+    return rem;
+  }
+
+  // Encode URL as bytes (UTF-8 subset, ASCII only for URLs)
+  function encodeData(text) {
+    var bytes = [];
+    for (var i = 0; i < text.length; i++) bytes.push(text.charCodeAt(i) & 0xff);
+    return bytes;
+  }
+
+  function toBits(bytes) {
+    var bits = [];
+    for (var i = 0; i < bytes.length; i++)
+      for (var b = 7; b >= 0; b--) bits.push((bytes[i] >> b) & 1);
+    return bits;
+  }
+
+  // Version selection: pick smallest version that fits
+  // EC level M capacity (bytes): v1=11,v2=20,v3=32,v4=46,v5=60,v6=74,v7=86,v8=100,v9=122,v10=154
+  var VERSION_CAP = [0,11,20,32,46,60,74,86,100,122,154];
+  // EC codewords per version (M): v1=10,v2=16,v3=26,v4=36,v5=48,v6=64,v7=72,v8=88,v9=110,v10=130
+  var VERSION_EC  = [0,10,16,26,36,48,64,72,88,110,130];
+
+  // Alignment pattern centers per version
+  var ALIGN = [null,null,[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50]];
+
+  function generate(text) {
+    var dataBytes = encodeData(text);
+    var dataLen = dataBytes.length;
+
+    // Pick version
+    var ver = -1;
+    for (var v = 1; v <= 10; v++) { if (dataLen <= VERSION_CAP[v]) { ver = v; break; } }
+    if (ver === -1) ver = 10; // clamp
+
+    var totalCW = VERSION_CAP[ver] + VERSION_EC[ver]; // total codewords
+    var ecCount = VERSION_EC[ver];
+    var dataCW  = totalCW - ecCount;
+
+    // Build data codewords
+    var msgBits = [0,1,0,0]; // byte mode indicator
+    // Character count (8 bits)
+    for (var b = 7; b >= 0; b--) msgBits.push((dataLen >> b) & 1);
+    // Data bits
+    msgBits = msgBits.concat(toBits(dataBytes));
+    // Terminator
+    for (var i = 0; i < 4 && msgBits.length < dataCW * 8; i++) msgBits.push(0);
+    while (msgBits.length % 8) msgBits.push(0);
+    // Pad bytes
+    var PAD = [0xEC, 0x11], pi = 0;
+    while (msgBits.length < dataCW * 8) { var pad = PAD[pi++ % 2]; for (var b=7;b>=0;b--) msgBits.push((pad>>b)&1); }
+
+    // To byte array
+    var cws = [];
+    for (var i = 0; i < msgBits.length; i += 8) {
+      var v2 = 0; for (var b = 0; b < 8; b++) v2 = (v2 << 1) | msgBits[i+b]; cws.push(v2);
+    }
+
+    // EC
+    var ec = ecBytes(cws, ecCount);
+    var full = cws.concat(ec);
+    var allBits = toBits(full);
+
+    // Matrix size
+    var N = 17 + ver * 4;
+    var mat = [], func = [];
+    for (var r = 0; r < N; r++) { mat.push(new Array(N).fill(0)); func.push(new Array(N).fill(false)); }
+
+    function sf(r, c, v) { mat[r][c] = v; func[r][c] = true; }
+
+    // Finder pattern
+    function finder(tr, tc) {
+      for (var dr = 0; dr < 7; dr++) for (var dc = 0; dc < 7; dc++) {
+        var v = (dr===0||dr===6||dc===0||dc===6||(dr>=2&&dr<=4&&dc>=2&&dc<=4)) ? 1 : 0;
+        sf(tr+dr, tc+dc, v);
+      }
+    }
+    finder(0,0); finder(0,N-7); finder(N-7,0);
+
+    // Separators
+    for (var i = 0; i < 8; i++) {
+      sf(7,i,0); sf(i,7,0);
+      sf(7,N-1-i,0); sf(i,N-8,0);
+      sf(N-8,i,0); sf(N-1-i,7,0);
+    }
+
+    // Timing
+    for (var i = 8; i < N-8; i++) { sf(6,i,i%2===0?1:0); sf(i,6,i%2===0?1:0); }
+
+    // Dark module
+    sf(N-8, 8, 1);
+
+    // Alignment patterns
+    if (ver >= 2) {
+      var ap = ALIGN[ver];
+      for (var ai = 0; ai < ap.length; ai++) for (var aj = 0; aj < ap.length; aj++) {
+        var ar = ap[ai], ac = ap[aj];
+        if (func[ar][ac]) continue;
+        for (var dr=-2;dr<=2;dr++) for (var dc=-2;dc<=2;dc++) {
+          var v = (Math.abs(dr)===2||Math.abs(dc)===2||(!dr&&!dc)) ? 1 : 0;
+          sf(ar+dr, ac+dc, v);
+        }
+      }
+    }
+
+    // Version info (ver >= 7)
+    if (ver >= 7) {
+      // precomputed version info bits for v7-v10
+      var VI = {7:0x07C94,8:0x085BC,9:0x09A99,10:0x0A4D3};
+      var vbits = VI[ver] || 0;
+      for (var i=0;i<18;i++) {
+        var bit=(vbits>>i)&1, r=Math.floor(i/3), c=i%3;
+        sf(N-11+r, c, bit); sf(c, N-11+r, bit);
+      }
+    }
+
+    // Format info - mask 2 (r%3==0), EC level M
+    // Precomputed format strings for M+mask0..7
+    var FMTS = [0x5412,0x5125,0x5E7C,0x5B4B,0x45F9,0x40CE,0x4F97,0x4AA0];
+    var fmt = FMTS[2]; // mask pattern 2
+    var fmtBits = [];
+    for (var i=14;i>=0;i--) fmtBits.push((fmt>>i)&1);
+    var FP1=[[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
+    var FP2=[[N-1,8],[N-2,8],[N-3,8],[N-4,8],[N-5,8],[N-6,8],[N-7,8],[8,N-8],[8,N-7],[8,N-6],[8,N-5],[8,N-4],[8,N-3],[8,N-2],[8,N-1]];
+    for (var i=0;i<15;i++) { sf(FP1[i][0],FP1[i][1],fmtBits[i]); sf(FP2[i][0],FP2[i][1],fmtBits[i]); }
+
+    // Place data bits
+    var bi = 0, col = N-1, goUp = true;
+    while (col > 0) {
+      if (col === 6) col--;
+      for (var ri = 0; ri < N; ri++) {
+        var row = goUp ? N-1-ri : ri;
+        for (var dx = 0; dx < 2; dx++) {
+          var c = col - dx;
+          if (!func[row][c] && bi < allBits.length) {
+            var bit = allBits[bi++];
+            // Apply mask 2: (row % 3 == 0)
+            if (row % 3 === 0) bit ^= 1;
+            mat[row][c] = bit;
+          }
+        }
+      }
+      col -= 2; goUp = !goUp;
+    }
+
+    return { matrix: mat, size: N };
+  }
+
+  return { generate: generate };
+})();
+
+// ── Render QR ────────────────────────────────────────────────────────────────
+function renderQR(url) {
+  var result = QRGen.generate(url);
+  var mat = result.matrix, N = result.size;
+  var cellSize = Math.max(4, Math.min(8, Math.floor(240 / N)));
+
+  var table = document.createElement('table');
+  table.style.cssText = 'border-collapse:collapse;display:block;';
+  for (var r = 0; r < N; r++) {
+    var tr = document.createElement('tr');
+    for (var c = 0; c < N; c++) {
+      var td = document.createElement('td');
+      td.style.cssText = 'width:'+cellSize+'px;height:'+cellSize+'px;padding:0;background:'+(mat[r][c]?'#000':'#fff')+';';
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  var container = document.getElementById('qr-container');
+  container.innerHTML = '';
+  container.appendChild(table);
+}
+
+// ── App ──────────────────────────────────────────────────────────────────────
+var entries = [];
+
+// Detect URL: si ouvert depuis GitHub Pages, utilise cette URL
+var pageUrl = window.location.href;
+var isLocal = pageUrl.startsWith('file://') || pageUrl.includes('localhost');
+
+document.getElementById('url-display').textContent = isLocal ? 'Hébergez ce fichier en ligne pour scanner depuis un téléphone' : pageUrl;
+if (isLocal) document.getElementById('local-warning').style.display = 'block';
+
+// Si l'URL contient ?scan=1, afficher directement le formulaire
+if (pageUrl.indexOf('scan=1') !== -1 || pageUrl.indexOf('scan=true') !== -1) {
+  showForm();
+} else {
+  var qrUrl = isLocal ? 'https://ibito-hub.github.io/qr-code-/presences.html' : pageUrl;
+  renderQR(qrUrl);
+}
+
+function setStep(n) {
+  [1,2,3].forEach(function(i) { document.getElementById('s'+i).classList.toggle('active', i===n); });
+}
+function showQR() {
+  ['sec-form','sec-ok'].forEach(function(id){ document.getElementById(id).classList.add('hidden'); });
+  document.getElementById('sec-qr').classList.remove('hidden');
+  setStep(1);
+}
+function showForm() {
+  ['sec-qr','sec-ok'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
+  document.getElementById('sec-form').classList.remove('hidden');
+  setStep(2);
+  setTimeout(function(){ document.getElementById('inp-prenom').focus(); }, 100);
+}
+function submitForm() {
+  var prenom = document.getElementById('inp-prenom').value.trim();
+  var nom    = document.getElementById('inp-nom').value.trim();
+  if (!prenom || !nom) { alert('Veuillez remplir le prénom et le nom.'); return; }
+  var now = new Date();
+  entries.push({ num: entries.length+1, prenom: prenom, nom: nom,
+    date: now.toLocaleDateString('fr-FR'),
+    heure: now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) });
+  document.getElementById('inp-prenom').value = '';
+  document.getElementById('inp-nom').value = '';
+  document.getElementById('ok-name').textContent = prenom + ' ' + nom.toUpperCase();
+  document.getElementById('sec-form').classList.add('hidden');
+  document.getElementById('sec-ok').classList.remove('hidden');
+  setStep(3);
+  renderList();
+}
+function renderList() {
+  var list = document.getElementById('list');
+  document.getElementById('cnt').textContent = entries.length + ' entrée'+(entries.length>1?'s':'');
+  if (!entries.length) { list.innerHTML='<div class="empty">Aucune présence enregistrée.</div>'; return; }
+  list.innerHTML = entries.slice().reverse().map(function(e){
+    return '<div class="entry-row"><span class="entry-num">#'+e.num+'</span><span class="entry-name">'+e.prenom+' '+e.nom.toUpperCase()+'</span><span class="entry-time">'+e.date+' '+e.heure+'</span></div>';
+  }).join('');
+}
+function clearAll() {
+  if (!entries.length) return;
+  if (confirm('Vider le registre ?')) { entries=[]; renderList(); }
+}
+function downloadExcel() {
+  if (!entries.length) { alert('Aucune présence à exporter.'); return; }
+  var data=[['#','Prénom','Nom','Date','Heure']];
+  entries.forEach(function(e){ data.push([e.num,e.prenom,e.nom,e.date,e.heure]); });
+  var ws=XLSX.utils.aoa_to_sheet(data);
+  ws['!cols']=[{wch:5},{wch:18},{wch:18},{wch:14},{wch:10}];
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Présences');
+  XLSX.writeFile(wb,'presences_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+</script>
+</body>
+</html>
